@@ -5,7 +5,7 @@ from math import exp, comb
 class ScorelineLayModel:
     def __init__(self, root):
         self.root = root
-        self.root.title("Odds Apex")
+        self.root.title("Odds Apex - Inplay")
         self.create_widgets()
 
         # History for dynamic updating (running xG averages, etc.)
