@@ -178,7 +178,7 @@ def reset_fields():
 
 # --- GUI Layout ---
 root = tk.Tk()
-root.title("Odds Apex Pre-Match")
+root.title("Odds Apex - Prematch")
 
 # Define input fields
 entries = {
