@@ -39,7 +39,7 @@ def calculate_insights():
         live_draw_odds = float(entries["entry_live_draw_odds"].get())
         live_away_odds = float(entries["entry_live_away_odds"].get())
         
-        # --- 2) Calculate adjusted expected goals for each team ---
+        # --- 2) Calculate expected goals for each team ---
         adjusted_home_goals = ((avg_goals_home_scored + home_xg_scored +
                                 avg_goals_away_conceded + away_xg_conceded) / 4)
         adjusted_home_goals *= (1 - 0.03 * injuries_home)
@@ -50,7 +50,7 @@ def calculate_insights():
         adjusted_away_goals *= (1 - 0.03 * injuries_away)
         adjusted_away_goals += form_away * 0.1 - position_away * 0.01
         
-        # --- 3) Calculate scoreline probabilities (Poisson, up to 10 goals each) ---
+        # --- 3) Calculate scoreline probabilities using Poisson (up to 10 goals each) ---
         goal_range = 10
         scoreline_probs = {}
         for i in range(goal_range):
@@ -58,15 +58,18 @@ def calculate_insights():
                 p = zip_probability(adjusted_home_goals, i) * zip_probability(adjusted_away_goals, j)
                 scoreline_probs[(i, j)] = p
         
-        # --- 4) Top 4 most likely scorelines ---
+        # --- 4) Top 5 most likely scorelines (sorted descending) ---
         sorted_scorelines = sorted(scoreline_probs.items(), key=lambda x: x[1], reverse=True)
-        top4 = sorted_scorelines[:4]
+        top5 = sorted_scorelines[:5]
         
-        # --- 5) Total goals distribution (0–6) ---
+        # --- 5) Total goals distribution (0–8) sorted descending by probability ---
         total_goals_distribution = {}
+        # Only consider total goals from 0 to 8
         for (i, j), p in scoreline_probs.items():
             tot = i + j
-            total_goals_distribution[tot] = total_goals_distribution.get(tot, 0) + p
+            if tot <= 8:
+                total_goals_distribution[tot] = total_goals_distribution.get(tot, 0) + p
+        sorted_total_goals = sorted(total_goals_distribution.items(), key=lambda x: x[1], reverse=True)
         
         # --- 6) Calculate match result probabilities from scorelines ---
         model_home_win = sum(p for (i, j), p in scoreline_probs.items() if i > j)
@@ -95,6 +98,9 @@ def calculate_insights():
             final_draw     /= sum_final
             final_away_win /= sum_final
         
+        match_results = [("Home Win", final_home_win), ("Draw", final_draw), ("Away Win", final_away_win)]
+        sorted_match_results = sorted(match_results, key=lambda x: x[1], reverse=True)
+        
         # --- 8) Under/Over 2.5 goals probabilities ---
         under_prob_model = 0.0
         for i in range(goal_range):
@@ -117,51 +123,45 @@ def calculate_insights():
             final_under_prob /= sum_final_ou
             final_over_prob  /= sum_final_ou
         
+        overunder = [("Over 2.5", final_over_prob), ("Under 2.5", final_under_prob)]
+        sorted_overunder = sorted(overunder, key=lambda x: x[1], reverse=True)
+        
         # --- 9) Compute fair odds for everything ---
         def fair_odds(prob):
             return (1/prob) if prob > 0 else float('inf')
         
-        # Scoreline fair odds (for top 4)
-        # We'll just do 1 / that scoreline probability
-        # If prob is 0, we do 'inf'
-        
-        # Match results
-        odds_home = fair_odds(final_home_win)
-        odds_draw = fair_odds(final_draw)
-        odds_away = fair_odds(final_away_win)
-        
-        # Over/Under
-        odds_under = fair_odds(final_under_prob)
-        odds_over  = fair_odds(final_over_prob)
-        
         # --- 10) Build final output text ---
         out_text = "=== Match Insights ===\n\n"
         
-        # Top 4 scorelines
-        out_text += "Top 4 Likely Scorelines:\n"
-        for (score, prob) in top4:
+        # Expected Goals
+        out_text += f"Expected Goals: Home {adjusted_home_goals:.2f}, Away {adjusted_away_goals:.2f}\n\n"
+        
+        # Top 5 scorelines
+        out_text += "Top 5 Likely Scorelines (most to least likely):\n"
+        for (score, prob) in top5:
             score_odds = fair_odds(prob)
             out_text += f"{score[0]} - {score[1]}: {prob*100:.1f}% (Odds: {score_odds:.2f})\n"
         out_text += "\n"
         
-        # Total goals distribution
-        out_text += "Total Goals Distribution (0–6):\n"
-        for tot in range(0, 7):
-            p = total_goals_distribution.get(tot, 0)
-            pct = p * 100
+        # Total goals distribution (sorted descending by probability)
+        out_text += "Total Goals Distribution (0–8, sorted):\n"
+        for tot, p in sorted_total_goals:
             odds_tg = fair_odds(p)
-            out_text += f"{tot} goals: {pct:.1f}% (Odds: {odds_tg:.2f})\n"
+            out_text += f"{tot} goals: {p*100:.1f}% (Odds: {odds_tg:.2f})\n"
         out_text += "\n"
         
-        # Match results
+        # Match results (sorted descending by probability)
         out_text += "Match Results:\n"
-        out_text += f"Home Win: {final_home_win*100:.1f}% (Odds: {odds_home:.2f})\n"
-        out_text += f"Draw: {final_draw*100:.1f}% (Odds: {odds_draw:.2f})\n"
-        out_text += f"Away Win: {final_away_win*100:.1f}% (Odds: {odds_away:.2f})\n\n"
+        for outcome, prob in sorted_match_results:
+            odds_outcome = fair_odds(prob)
+            out_text += f"{outcome}: {prob*100:.1f}% (Odds: {odds_outcome:.2f})\n"
+        out_text += "\n"
         
-        # Over 2.5 goals
-        out_text += "Over 2.5 Goals:\n"
-        out_text += f"{final_over_prob*100:.1f}% (Odds: {odds_over:.2f})\n"
+        # Over/Under 2.5 (sorted descending by probability)
+        out_text += "Over/Under 2.5 Goals:\n"
+        for label, prob in sorted_overunder:
+            odds_ou = fair_odds(prob)
+            out_text += f"{label}: {prob*100:.1f}% (Odds: {odds_ou:.2f})\n"
         
         # --- 11) Display the results in the text widget ---
         result_text_widget.delete("1.0", tk.END)
